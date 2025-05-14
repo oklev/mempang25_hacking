@@ -3,7 +3,9 @@ cd $DIR_MEMPANG25
 mkdir -p day2_impg/assemblies
 cd day2_impg/assemblies
 
-wget https://garrisonlab.s3.amazonaws.com/teaching/primates16.hsa6.fa.gz
+if [ ! -f primates16.hsa6.fa.gz ]; then #only download the file if it isn't already there
+    wget https://garrisonlab.s3.amazonaws.com/teaching/primates16.hsa6.fa.gz
+fi
 
 cd $DIR_MEMPANG25/day2_impg
 mkdir alignments
