@@ -1018,6 +1018,205 @@ echo "${organism_name} ${strain}"
 </details>
 </p>
 
-### Step Five: Using the summary data to rename the genome file
+
+## Step Five: Validating the download
+
+This step isn't strictly necessary because NCBI datasets automatically performs validation checks for you, but we'll do it anyways because it's a good idea when downloading data in general.
+
+First, take a look at what is in the md5sum.txt file:
+```
+less md5sum.txt
+```
+
+It's a list of hash values and the corresponding files. [md5sum](https://www.geeksforgeeks.org/linux-unix/md5sum-linux-command/) calculates these values bashed on the contents of the file; you can't tell what's in the file from these values, but if two files have the same content, they will have the same hash value. Therefore, if any of the files got corrupted or truncated during the download, computing the md5sum will tell us there's something wrong with that file.
+
+We can double check that the files downloaded correctly with this command:
+```
+md5sum -c md5sum.txt
+```
+Which tells md5sum to check the files specified in this txt file. The output should look like this:
+
+```
+ncbi_dataset/data/assembly_data_report.jsonl: OK
+ncbi_dataset/data/GCF_002899475.1/GCF_002899475.1_ASM289947v1_genomic.fna: OK
+ncbi_dataset/data/dataset_catalog.json: OK
+```
+
+### Use the output to check the download automatically
+
+We can see everything looks fine by reading it, but what if we want to perform this check automatically? We need a way of catching in an if/else statement whether everything is OK: essentially, we need to transform this output into a boolean "True" or "False" value.
+
+The second column of the output will say "OK" if the files are correct and "FAILED" if the files are incorrect. There are a lot of ways to get the second column of some output in bash, but one of the simplest is just by using awk to print the second column:
+
+```
+md5sum -c md5sum.txt | awk '{print $2}'
+```
+
+**Question: Why use ' ' instead of " " here?**
+
+<p>
+<details>
+<summary>Answer</summary>
+In bash, variables called with the <pre><code>$</code></pre> symbol inside of strings that are surrounded by <pre><code>" "</code></pre> quotes are replaced with their values, but variables called inside <pre><code>' '</code></pre> quotes are passed literally. You can test it like so:
+
+<pre><code>echo '{print $2}'
+echo "{print $2}"</code></pre>
+
+<pre><code>{print $2}</code></pre> is the command awk needs to print column 2, so we have to put it inside single quotes to make sure the "$2" value is passed correctly.
+
+</details>
+</p>
+
+Now we have a version of the output with the unique file names stripped out, that just says "OK OK OK". How do we then check automatically that every line in this output says OK?
+
+We *could* just check that the output of this command is "OK OK OK". That would look something like this:
+
+```
+if  [[ $(md5sum -c md5sum.txt | awk '{print $2}') == $'OK\nOK\nOK' ]];
+then echo "Everything is OK!"
+fi
+```
+
+**Question: Why [[ ]]?**
+
+<p>
+<details>
+<summary>Answer</summary>
+
+The [[ ]] brackets surround a comparison in bash; this is how you will transform values and inequalities into a boolean "True" or "False" you can directly use.
+
+</details>
+</p>
+
+**Question: Why `$'OK\nOK\nOK'`?**
+
+<p>
+<details>
+<summary>Answer</summary>
+
+This is one way to get a literal newline or enter character in bash; $'' strings can interpret certain escape characters whereas normal strings will just treat them literally. You can look at this [stack overflow post](https://stackoverflow.com/questions/3005963/how-can-i-have-a-newline-in-a-string-in-sh) for other alternative methods!
+
+</details>
+</p>
+
+This approach works for our current download, but what if we wanted to download an additional file along with the genome, such as an annotation file? Then there would be more than three files, and the computer would respond incorrectly to this command, because "OK OK OK OK" is NOT the same as "OK OK OK". It would be better just to get a list of unique values for this second column; we can do this with the `uniq` command.
+
+That would look something like this:
+```
+md5sum -c md5sum.txt | awk '{print $2}' | sort | uniq
+```
+
+Which just gives us "OK"! Then we can check if the value of all of the columns is "OK" like this:
+
+```
+if  [[ $(md5sum -c md5sum.txt | awk '{print $2}' | sort | uniq) == "OK" ]];
+then echo "Everything is OK!"
+fi
+```
+
+**Question: Why `| sort | uniq` instead of just `| uniq`?**
+
+<p>
+<details>
+<summary>Answer</summary>
+
+The bash command <code>uniq</code>< *expects* input to be sorted so it can give a proper output. If you give it unsorted input, it might give you output with some duplicated values, which isn't typically what you want when using the <code>uniq</code> command, so it's best to always <code>sort</code> the input first.
+
+In this case though it doesn't matter! Since you're just using it to check if everything is "OK", just using <code>| uniq</code> by itself will give you the same True/False answer in the end.
+
+</details>
+</p>
+
+## Step Six: Using the summary data to rename the genome file
+
+Now that we've verified that all of the files downloaded correctly, let's extract the genomic fasta file and rename it based on the summary data.
+
+Earlier, we used this command to get the organism name we wanted from NCBI datasets:
+
+```
+organism_name=$(datasets summary genome accession GCF_002899475.1 | jq .reports[0].organism.organism_name -r)
+strain=$(datasets summary genome accession GCF_002899475.1 | jq .reports[0].organism.infraspecific_names.strain -r)
+echo "${organism_name} ${strain}"
+```
+
+But, it would be wasteful to query their servers this many times in an automated download loop. If you look at the command above, it's querying the database and downloading this metadata twice, once for each call of `datasets summary genome accession`. Instead, we should get these values from the 
+assembly_data_report.jsonl file we downloaded. We can do that by replacing `datasets summary genome accession GCF_002899475.1 | jq` with `jq ncbi_dataset/data/assembly_data_report.jsonl`. That would look like this:
+
+```
+organism_name=$(jq .reports[0].organism.organism_name -r ncbi_dataset/data/assembly_data_report.jsonl)
+strain=$(jq .reports[0].organism.infraspecific_names.strain -r ncbi_dataset/data/assembly_data_report.jsonl)
+echo "${organism_name} ${strain}"
+```
+
+But if we try that, it won't work as expected. Can you tell why?
+<p>
+<details>
+<summary>Hint: Try looking at the data in this file with <code>jq . ncbi_dataset/data/assembly_data_report.jsonl</code></summary>
+
+The assembly_data_report.jsonl file uses variable names in camelCase instead of snake_case. So, we'll need to change our variable calls in the command. It also doesn't have the outer level "reports" field; the data is just the report by itself. So we won't need the <code>.reports[0]</code> field anymore.
+
+<pre><code>organism_name=$(jq .organism.organismName -r ncbi_dataset/data/assembly_data_report.jsonl)
+strain=$(jq .organism.infraspecificNames.strain -r ncbi_dataset/data/assembly_data_report.jsonl)
+echo "${organism_name} ${strain}"</code></pre>
+
+</details>
+</p>
+
+Great! Now we've extracted the organism name. Let's say we want our genomic fasta file to be called "Escherichia_coli_DH5alpha.GCF_002899475.1.fna"
+
+**Question: Why would we want to name the file this way?**
+
+<p>
+<details>
+<summary>Answer</summary>
+
+It's helpful to have the organism name in a human readable format for when you want to work with it later -- that way you don't have to memorize the accession numbers of the different genomes you're working with. However, it's also a good idea to leave the accession number as part of the name; that way we never lose track of where we got this file from.
+
+Also, spaces are allowed in file names in bash, but if you're not careful, they can cause problems. To make things easier, it's best to just replace the spaces with "_".
+
+</details>
+</p>
+
+To replace the spaces, one easy method we can use is the `tr`, to text replace, command. You can see it work like this:
+```
+echo "${organism_name} ${strain}" | tr " " _
+```
+
+Or to get our final file name:
+```
+filename=$(echo "${organism_name} ${strain}.GCF_002899475.1.fna" | tr " " _)
+echo $filename
+```
+
+To rename the file, we can simply use the mv (move) command with our new filename! 
+
+```
+mv ncbi_dataset/data/GCF_002899475.1/GCF_002899475.1_*_genomic.fna $filename
+```
+
+And once we don't need it anymore, we can delete the ncbi_dataset directory and other downloaded data:
+```
+rm -r ncbi_dataset README.md md5sum.txt ncbi_dataset.zip
+```
+
+Now, we've got a downloaded and helpfully named genomic fasta file, using only the accession number!
+
+## Step Seven: Actually writing the script
+
+Now that we've manually tested out all the different steps that will be carried out in this script, it's time to actually download the files. Start by creating a script file; you can put it in the mempang_hacking directory if you want. Mine will be called `oliver.datasets.sh`.
+
+The next step is to write the script! We can worry about looping through different accession numbers later; for now, let's write the script to accept a single accession number, which will be the first input argument to the script. For bash, that looks like this:
+
+```
+acc=$1
+```
+
+A bash script will always treat $1 as the first argument, $2 as the second argument, and so on. 
+
+Try to go ahead and write your script! It should use `datasets download genome accession` to download the data and unzip the download, then check if everything downloaded correctly. If it did, then use data from the assembly_data_report.jsonl file to rename the downloaded genome file; and finally, delete the ncbi_dataset directory and other downloads.
+
+Bonus points if you add an "else" clause to your if statement checking the md5sum and print an error message if everything didn't download  "OK".
+
+## Step Eight: Creating the loop
 
 To be added
