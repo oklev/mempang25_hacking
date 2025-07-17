@@ -1213,10 +1213,102 @@ acc=$1
 
 A bash script will always treat $1 as the first argument, $2 as the second argument, and so on. 
 
-Try to go ahead and write your script! It should use `datasets download genome accession` to download the data and unzip the download, then check if everything downloaded correctly. If it did, then use data from the assembly_data_report.jsonl file to rename the downloaded genome file; and finally, delete the ncbi_dataset directory and other downloads.
+Try to go ahead and write your script! 
+
+1) First, it should check if a file *.$acc.fna already exists. 
+2) If it doesn't, your script should use `datasets download genome accession` to download the data,
+3) unzip the download, 
+4) then check if everything downloaded correctly. 
+5) If it did, use data from the assembly_data_report.jsonl file to rename the downloaded genome file.
+6) Finally, delete the ncbi_dataset directory and other downloads.
 
 Bonus points if you add an "else" clause to your if statement checking the md5sum and print an error message if everything didn't download  "OK".
 
 ## Step Eight: Creating the loop
 
-To be added
+Once you have the initial script working for one accession number using `acc=$1`, it should be pretty easy to transform it into a loop that iterates over any number of accession numbers. All you have to do is replace `acc=$1` with a loop that wraps the rest of your code, like so:
+```
+for acc in $@
+do
+  [rest of your code goes here]
+  sleep 1s
+done
+```
+
+**Question: Why `$@`**
+
+<p>
+<details>
+<summary>Answer</summary>
+
+<code>$@</code> is how you say "all input arguments" in bash. <code>for acc in $@</code> tells the script to loop through each input argument (separated by a space) and use that argument as <code>$acc</code> for that iteration of the loop.
+
+</details>
+</p>
+
+**Question: Why `sleep 1s?`**
+
+<p>
+<details>
+<summary>Answer</summary>
+
+<code>sleep 1s</code> is how you tell bash that you want to wait 1 second before continuing. It's a good idea to include a <code>sleep</code> step in any code where you're looping through a bunch of requests to a server for data. Some servers, including NCBI, will time you out and fail to return the data you're requesting if you make too many queries in too short a time.
+
+</details>
+</p>
+
+## Step Nine: Adding options to your script
+
+To make your script the most reusable, you should have some variables set at the start that can be changed by input options. For example: since we were using *E. coli* as an example organism, we requested infraspecificNames.strain in order to get the strain name. But what if the genomes we were downloading were a bunch of different isolates of the same species of moth? We might want to use infraspecificNames.isolate instead. 
+
+To accomplish this, we can set a default value at the top:
+
+```infraspecific_names=strain```
+
+and then look for an input argument, such as `--infraspecific_names=isolate`, to change the value of this variable.
+
+In order to do this, though, we're going to have to change a bit about the way we do our loop. `for acc in $@` isn't going to work anymore if `$@` includes some arguments like `--infraspecific_names=isolate`; instead, we'll need to pre-process our input arguments and sort out which ones go with input arguments, and which ones are the accession numbers we're looking for. 
+
+For a given input argument `$arg`, we can use a case statement to accomplish this:
+
+```
+accessions=""
+case $arg in
+  --infraspecific_names=*) infraspecific_names="${arg#*=}";;
+  *) accessions="$accessions $arg";;
+esac
+```
+
+A case statement is kind of like an if / else statement, but it checks for multiple different values of the input variable at once. Let's break down what this case statement is doing.
+
+First, it checks the value of the input variable, $arg, against each of the "cases" in front of the `)`. `*` is still a wildcard value, like it is when looking for bash file names. So if `$arg` was "hello", it would match the case statement `hello)`, but it would also match case statements like `*ello)`, `h*)`, or just `*)` (which matches everything; you can use it as the default behavior of the case statement if something didn't match the previous arguments). In this case, we use `--infraspecific_names=*)` to match an argument like `--infraspecific_names=isolate`.
+
+The `;;` at the end of each line of the case statement tells bash we are done executing code for handling that particular case. This is necessary because you can actually have multiple lines of code execute for each case if you would like; that would look something like this:
+
+```
+accessions=""
+case $arg in
+  --infraspecific_names=*)
+    infraspecific_names="${arg#*=}"
+    echo "We will be renaming files with names based on infraspecificNames.${infraspecific_names}";;
+  *) accessions="$accessions $arg";;
+esac
+```
+
+What about the `"${arg#*=}"`? This is a string manipulation using bash [parameter expansion](https://opensource.com/article/17/6/bash-parameter-expansion), which gives us a straightforward way to manipulate strings stored in variables. To do parameter expansion, you enclose everything in `${}`; then you don't have to the use the $ to get the variable values, you just use the variable name. Particular kinds of pattern expansion have different characters associated with them. For `"${arg#*=}"`, that character is `#`, which tells bash to remove a pattern from the beginning of the string; and the pattern being removed is `*=`. So essentially, this removes everything before and including the first equals sign from the string and just returns the value after =.
+
+Right now we only have one input argument, `--infraspecific_names`, but if we wanted to add more, using a case statement makes this really easy to do. For example, what if we wanted an argument `--dir` to set which directory the downloaded files should go into (instead of always downloading them into our current directory)? That would look something like this:
+
+```
+accessions=""
+dir="."
+case $arg in
+  --infraspecific_names=*) infraspecific_names="${arg#*=}";;
+  --dir=*) dir="${arg#*=}";;
+  *) accessions="$accessions $arg";;
+esac
+```
+
+Great! Now if we loop through each input argument and run it through this case statement, it will either set one of the preset variables, if it matches the -- case for that variable, or it will add that argument to accessions; then we can do `for acc in $accessions`. But how do we loop through the input arguments?
+
+#TODO under construction
