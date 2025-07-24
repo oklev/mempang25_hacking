@@ -1311,4 +1311,18 @@ esac
 
 Great! Now if we loop through each input argument and run it through this case statement, it will either set one of the preset variables, if it matches the -- case for that variable, or it will add that argument to accessions; then we can do `for acc in $accessions`. But how do we loop through the input arguments?
 
-#TODO under construction
+For a simple case where we are using input arguments in the format `--arg=value`, we can actually just do it like this:
+
+```
+accessions=""
+dir="."
+for arg in $@; do
+  case $arg in
+    --infraspecific_names=*) infraspecific_names="${arg#*=}";;
+    -*=*) echo "unrecognized argument $arg";;
+    *) accessions="$accessions $arg";;
+  esac
+done
+```
+
+And that's pretty much all there is to it! 
